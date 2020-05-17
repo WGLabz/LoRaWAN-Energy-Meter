@@ -7,6 +7,7 @@ A LoRaWAN enabled Energy Meter using TTGO ESP32 board and PZEM-004T Energy Monit
 1. [Arduino-LMIC](https://github.com/mcci-catena/arduino-lmic)
 2. [U8glib Library for OLED](https://github.com/olikraus/u8g2)
 3. [Arduino communication library for Peacefair PZEM-004T](https://github.com/olehs/PZEM004T)
+4. [SoftwareSerial](https://github.com/plerup/espsoftwareserial)
 
 ### ESP32 Pin Diagram:-
 
