@@ -1,12 +1,11 @@
 #include <lmic.h>
 #include <hal/hal.h>
 #include <SPI.h>
-
-// Library for the OLED module
-#include <U8x8lib.h>
+#include <U8x8lib.h> // Library for the OLED module
+#include <SoftwareSerial.h> // Library for SoftwareSerial
 
 // Include the TTN security keys for OTAA defined in ttn_keys.h file
-#include "ttn_keys.h"
+#include "config.h"
 
 // Disable PING and Beacon as is not required for Class A LoRaWAN operation
 #define DISABLE_PING 1
@@ -19,10 +18,19 @@ void setLoraMessageOnOLED(char* message);
 // Object for the OLED
 U8X8_SSD1306_128X64_NONAME_SW_I2C display_(/* clock=*/ 15, /* data=*/ 4, /* reset=*/ 16);
 
-static uint8_t mydata[] = "Hello, from WGLabz!";
-static osjob_t sendjob;
+// Object for SoftwareSerial
+SoftwareSerial pzemSerialObj;
 
-const unsigned TX_INTERVAL = 60;
+uint8_t pzem_response_buffer[8]; // Reponse buffer for PZEM serial communication
+static uint8_t loraDataPackets[9];
+static osjob_t sendjob;
+int lastDisplayUpdateTime = 0;
+int lastLoraDataPublishTime = 0;
+float voltage = 0.00;
+float current = 0.00;
+float power = 0.00;
+float energy = 0.00;
+//const unsigned TX_INTERVAL = 60;
 
 // Pin defination for the LoRa module connection to the ESP32. May change based on the board you are using.
 const lmic_pinmap lmic_pins = {
@@ -35,6 +43,14 @@ const lmic_pinmap lmic_pins = {
     32
   }
 };
+
+// Commands for PZEM004T V2 Module
+uint8_t current_[7] = {0xB1,0xC0,0xA8,0x01,0x01,0x00,0x1B};
+uint8_t address_[7] = {0xB4,0xC0,0xA8,0x01,0x01,0x00,0x1E};
+uint8_t energy_[7]  = {0xB3,0xC0,0xA8,0x01,0x01,0x00,0x1D};
+uint8_t voltage_[7] = {0xB0,0xC0,0xA8,0x01,0x01,0x00,0x1A};
+uint8_t power_[7] =   {0xB2,0xC0,0xA8,0x01,0x01,0x00,0x1C};
+
 
 void printHex2(unsigned v) {
   v &= 0xff;
@@ -153,7 +169,7 @@ void do_send(osjob_t * j) {
     setLoraMessageOnOLED("Not sending");
   } else {
     // Prepare upstream data transmission at the next possible time.
-    LMIC_setTxData2(1, mydata, sizeof(mydata) - 1, 0);
+    LMIC_setTxData2(1, loraDataPackets, sizeof(loraDataPackets) - 1, 0);
     Serial.println(F("Packet queued"));
     setLoraMessageOnOLED("Packet queued");
   }
@@ -168,11 +184,14 @@ void setup() {
   ;
   Serial.begin(115200);
   Serial.println(F("Starting"));
-  
 
-//Intialize the OLED module
+  // Initalize SoftwareSerial interface for PZEM module
+  pzemSerialObj.begin(9600, SWSERIAL_8N1, softRxPin, softTxPin, false, 200, 10);
+
+  //Intialize the OLED module
   initializeOLED();
   setLoraMessageOnOLED("Starting....");
+  
   //Making sure the Region is set properly
   #ifdef CFG_in866
   Serial.println(F("Module Configured for Inidian LoRa band (865-867 MHz)"));
@@ -183,13 +202,26 @@ void setup() {
   // Reset the MAC state. Session and pending data transfers will be discarded.
   LMIC_reset();
   //    LMIC_setClockError(MAX_CLOCK_ERROR * 5 / 100);
+  
+  updateMeterData();
   do_send( & sendjob);
-
-
 }
 
 void loop() {
   os_runloop_once();
+  if((millis() - lastDisplayUpdateTime) > (displayUpdateInterval * 1000)){
+    lastDisplayUpdateTime = millis();
+    updateMeterData();
+    display_.drawString(8, 2,(String(voltage)+"V").c_str ());
+    display_.drawString(8, 3, (String(current)+"A").c_str ());
+    display_.drawString(8, 4, (String(power)+"W").c_str ());
+    display_.drawString(8, 5, (String(energy)+"Kwh").c_str ());
+  }
+  if((millis() - lastLoraDataPublishTime) > (loraDataPublishInterval * 1000)){
+    lastLoraDataPublishTime = millis();
+    updateMeterData();
+    do_send(&sendjob); // Send the meter data w/ LoRaWAN
+  }
 }
 void initializeOLED(){
   display_.begin();
@@ -219,3 +251,47 @@ void setLoraMessageOnOLED(char* message){
     clearOLEDLine(7);
     display_.drawString(0, 7, message);
 }
+
+// PZEM Module COmmunication related functions
+
+bool updateMeterData(){
+    voltage = fetchData(voltage_) ? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2] +(pzem_response_buffer[3] / 10.0) : -1;
+    loraDataPackets[0] = pzem_response_buffer[1];
+    loraDataPackets[1] = pzem_response_buffer[2];
+    loraDataPackets[2] = pzem_response_buffer[3];
+    current = fetchData(current_)? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2]+ (pzem_response_buffer[3] / 100.0) : -1;
+    power = fetchData(power_) ? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2]: -1;
+    loraDataPackets[3] = pzem_response_buffer[1];
+    loraDataPackets[4] = pzem_response_buffer[2];
+    energy = fetchData(energy_) ? ((uint32_t)pzem_response_buffer[1] << 16) + ((uint16_t)pzem_response_buffer[2] << 8) + pzem_response_buffer[3] : -1;
+    loraDataPackets[5] = pzem_response_buffer[1];
+    loraDataPackets[6] = pzem_response_buffer[2];
+    loraDataPackets[7] = pzem_response_buffer[3];
+}
+bool fetchData(uint8_t *command){
+  while(pzemSerialObj.available() > 0){ //Empty in buffer if it holds any data
+    pzemSerialObj.read();
+  }
+  for(int count=0;count < 7; count++)
+    pzemSerialObj.write(command[count]);
+
+  int startTime = millis();
+  int receivedBytes = 0; 
+
+  while((receivedBytes < 7 ) && ((millis()- startTime) < 10000)){ // Waits till it recives 7 bytes or a timout of 10 second happens
+      if(pzemSerialObj.available() > 0){
+        pzem_response_buffer[receivedBytes++] = (uint8_t)pzemSerialObj.read();
+       }
+       yield();
+    }
+  return receivedBytes == 7;
+}
+
+void printPzemResponseBuffer(){ //For Debugging
+  Serial.print("Buffer Data: ");
+  for(int x =0 ;x < 7; x++){
+    Serial.print(int(pzem_response_buffer[x]));
+    Serial.print(" ");
+  }
+   Serial.println("");
+  }
