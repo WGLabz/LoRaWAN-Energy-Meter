@@ -28,10 +28,11 @@ function Decoder(bytes, port) {
 
 
     decoded.voltage = voltage;
-    decoded.current = power / voltage ;
+    decoded.current = voltage > 0 ? power / voltage : 0;
     decoded.power = power;
     decoded.energy = energy;
     
     return decoded;
+}
 }
 ```

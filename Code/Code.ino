@@ -127,7 +127,7 @@ void onEvent(ev_t ev) {
 
     }
     // Schedule next transmission
-//    os_setTimedCallback( & sendjob, os_getTime() + sec2osticks(TX_INTERVAL), do_send);
+//    os_setTimedCallback( & sendjob, os_getTime() + sec2osticks(), do_send);
     break;
   case EV_LOST_TSYNC:
     Serial.println(F("EV_LOST_TSYNC"));
@@ -202,9 +202,12 @@ void setup() {
   // Reset the MAC state. Session and pending data transfers will be discarded.
   LMIC_reset();
   //    LMIC_setClockError(MAX_CLOCK_ERROR * 5 / 100);
-  
+
+// Serial.println(F("Setting up the PZEM module address to 192.168.1.1"));
+//  fetchData(address_);
+//  printPzemResponseBuffer();
   updateMeterData();
-  do_send( & sendjob);
+  do_send(&sendjob);
 }
 
 void loop() {
@@ -256,14 +259,22 @@ void setLoraMessageOnOLED(char* message){
 
 bool updateMeterData(){
     voltage = fetchData(voltage_) ? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2] +(pzem_response_buffer[3] / 10.0) : -1;
+    if(DEBUG)
+      printPzemResponseBuffer();
     loraDataPackets[0] = pzem_response_buffer[1];
     loraDataPackets[1] = pzem_response_buffer[2];
     loraDataPackets[2] = pzem_response_buffer[3];
-    current = fetchData(current_)? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2]+ (pzem_response_buffer[3] / 100.0) : -1;
+    current = fetchData(current_)? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2]+ (pzem_response_buffer[3] / 100.0) : -1;   
+    if(DEBUG)
+      printPzemResponseBuffer();
     power = fetchData(power_) ? (pzem_response_buffer[1] << 8) + pzem_response_buffer[2]: -1;
+    if(DEBUG)
+      printPzemResponseBuffer();
     loraDataPackets[3] = pzem_response_buffer[1];
     loraDataPackets[4] = pzem_response_buffer[2];
     energy = fetchData(energy_) ? ((uint32_t)pzem_response_buffer[1] << 16) + ((uint16_t)pzem_response_buffer[2] << 8) + pzem_response_buffer[3] : -1;
+    if(DEBUG)
+      printPzemResponseBuffer();
     loraDataPackets[5] = pzem_response_buffer[1];
     loraDataPackets[6] = pzem_response_buffer[2];
     loraDataPackets[7] = pzem_response_buffer[3];
